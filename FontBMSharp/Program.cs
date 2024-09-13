@@ -1,13 +1,12 @@
 ﻿using Baker76.Imaging;
 using FontBMSharp;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 class Program
 {
     static void Main(string[] args)
     {
-        //args = new string[] { @"fonts\Zebrawood.otf", "output" };
-        //args = new string[] { @"fonts\*.otf", "output" };
-
         if (args.Length == 0)
         {
             DisplayHelp();
@@ -15,7 +14,7 @@ class Program
         }
 
         List<string> fileList = new List<string>();
-        FontBMOptions options = new FontBMOptions { AutoSize = true, TextureSize = new System.Drawing.Size(256, 256) };
+        FontBMOptions options = new FontBMOptions();
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -32,12 +31,16 @@ class Program
                 if (arg.StartsWith("-chars="))
                 {
                     string[] vals = arg.Split('=')[1].Split('-');
+                    int charsStart = 0;
+                    int charsEnd = 0;
 
-                    if (vals.Length != 2 || !Int32.TryParse(vals[0], out options.CharStart) || !Int32.TryParse(vals[1], out options.CharEnd))
+                    if (vals.Length != 2 || !Int32.TryParse(vals[0], out charsStart) || !Int32.TryParse(vals[1], out charsEnd))
                     {
                         Console.WriteLine("ERROR: Invalid value " + args[i]);
                         return;
                     }
+
+                    options.CreateChars(charsStart, charsEnd);
                 }
 
                 if (arg.StartsWith("-font-size="))
@@ -49,6 +52,8 @@ class Program
                         Console.WriteLine("ERROR: Invalid value " + args[i]);
                         return;
                     }
+
+                    options.OriginalFontSize = options.FontSize;
                 }
 
                 if (arg.StartsWith("-spacing="))
@@ -91,12 +96,42 @@ class Program
                     }
 
                     options.TextureSize = new System.Drawing.Size(width, height);
-                    options.AutoSize = false;
                 }
 
-                if (arg == "-auto-size")
+                if (arg.StartsWith("-auto-size="))
                 {
-                    options.AutoSize = true;
+                    string[] vals = arg.Split('=');
+
+                    switch(vals[1].ToLower())
+                    {
+                        case "texture":
+                            options.AutoSize = AutoSizeMode.Texture;
+                            break;
+                        case "font":
+                            options.AutoSize = AutoSizeMode.Font;
+                            break;
+                        default:
+                            Console.WriteLine("ERROR: Invalid auto-size value " + args[i]);
+                            return;
+                    }
+                }
+
+                if (arg.Equals("-no-packing"))
+                {
+                    options.NoPacking = true;
+                }
+
+                if (arg.StartsWith("-grid-size="))
+                {
+                    string[] vals = arg.Split('=')[1].Split('x');
+
+                    if (vals.Length != 2 || !Int32.TryParse(vals[0], out int rows) || !Int32.TryParse(vals[1], out int cols))
+                    {
+                        Console.WriteLine("ERROR: Invalid grid size value " + args[i]);
+                        return;
+                    }
+
+                    options.GridSize = new System.Drawing.Size(rows, cols);
                 }
 
                 if (arg.StartsWith("-data-format="))
@@ -117,6 +152,12 @@ class Program
                             Console.WriteLine("ERROR: Invalid data format value " + args[i]);
                             return;
                     }
+                }
+
+                if (arg.StartsWith("-chars-file="))
+                {
+                    string charsFile = arg.Split('=')[1];
+                    options.ReadCharsFile(charsFile);
                 }
             }
             else
@@ -148,6 +189,8 @@ class Program
                 ProcessFont(file, outputPath, options);
             }
         }
+
+        Console.WriteLine("Done!");
     }
 
     public static bool TryParseColorString(string colorString, out Color color)
@@ -184,11 +227,11 @@ class Program
         string fontName = Path.GetFileNameWithoutExtension(fontFileName);
         string fontExtention = Path.GetExtension(fontFileName);
 
-        Console.WriteLine($"Processing {fontName}...");
-
         var buffer = File.ReadAllBytes(fontFileName);
 
         (FontFnt fontFnt, Image image) = await FontFnt.LoadTTF(buffer, fontName, options);
+
+        Console.WriteLine($"Processed {fontName} ({options.Font.Name})...");
 
         var pngFileName = Path.Combine(outputPath, fontName + ".png");
         var fntFileName = Path.Combine(outputPath, fontName + ".fnt");
@@ -219,12 +262,15 @@ class Program
         Console.WriteLine("                          wildcards to batch process. ie. *.ttf or *.otf");
         Console.WriteLine("<output-path>             The folder to output the processed files");
         Console.WriteLine("-chars=<n-n>              Set the starting and ending character codes. Default is 32-126.");
+        Console.WriteLine("-chars-file=<filename>    Use a file to specify which characters to include.");
         Console.WriteLine("-font-size=<n>            Set the font size to be used. Default is 32.");
         Console.WriteLine("-spacing=<n>              Set the spacing between characters. Default is 1.");
         Console.WriteLine("-color=<r,g,b[,a]>        Set the font color. Default is 0,0,0,0 (transparent).");
         Console.WriteLine("-background-color=<r,g,b[,a]> Set the background color. Default is 255,255,255,255 (white).");
         Console.WriteLine("-texture-size=<nxn>       Set the texture size. Default is 256x256.");
-        Console.WriteLine("-auto-size                Automatically size the texture. Default is true.");
+        Console.WriteLine("-auto-size=<texture|font> Automatically adjust the texture or font size to fit all glyphs. Default is texture.");
+        Console.WriteLine("-no-packing               Disable rectangle packing and draw glyphs in a grid.");
+        Console.WriteLine("-grid-size=<nxn>          Set the grid size for no-packing mode. Default is 9x10.");
         Console.WriteLine("-data-format=<txt|xml|bin> Set the output format. Default is txt.");
     }
 }

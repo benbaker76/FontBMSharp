@@ -29,17 +29,20 @@ FontBMSharp <filename> <output-path> [options]
 
 ## Command Line Arguments
 
-| Argument              | Description                                                                 | Default Value           |
-|-----------------------|-----------------------------------------------------------------------------|-------------------------|
-| `-h` or `-?`          | Display help information.                                                   | -                       |
-| `-chars=<n-n>`        | Set the starting and ending character codes to include in the bitmap font.  | `32-126`                |
-| `-font-size=<n>`      | Set the font size to be used.                                                | `32`                    |
-| `-spacing=<n>`        | Set the spacing between characters.                                          | `1`                     |
-| `-color=<r,g,b[,a]>`      | Set the font color using RGB[A] values.                                         | `0,0,0,0` (transparent) |
-| `-background-color=<r,g,b[,a]>` | Set the background color using RGB[A] values.                          | `255,255,255,255` (white)   |
-| `-texture-size=<nxn>` | Set the initial texture size in pixels (width x height).                     | `256x256`               |
-| `-auto-size`          | Automatically adjust the texture size to fit all glyphs.                     | `true`                  |
-| `-data-format=<txt\|xml\|bin>` | Set the output format.                                                    | `txt`                   |
+| Argument                        | Description                                                                 | Default Value               |
+|----------------------------------|-----------------------------------------------------------------------------|-----------------------------|
+| `-h` or `-?`                    | Display help information.                                                   | -                           |
+| `-chars=<n-n>`                  | Set the starting and ending character codes to include in the bitmap font.   | `32-126`                    |
+| `-chars-file=<filename>`        | Use a file to specify which characters to include in the bitmap font.        | -                           |
+| `-font-size=<n>`                | Set the font size to be used.                                                | `32`                        |
+| `-spacing=<n>`                  | Set the spacing between characters.                                          | `1`                         |
+| `-color=<r,g,b[,a]>`            | Set the font color using RGB[A] values.                                      | `0,0,0,0` (transparent)     |
+| `-background-color=<r,g,b[,a]>` | Set the background color using RGB[A] values.                                | `255,255,255,255` (white)   |
+| `-texture-size=<nxn>`           | Set the initial texture size in pixels (width x height).                     | `256x256`                   |
+| `-auto-size=<texture|font>`     | Automatically adjust the texture size or font size to fit all glyphs.        | `texture`                   |
+| `-no-packing`                   | Disable rectangle packing and draw glyphs in a grid.                        | `false`                     |
+| `-grid-size=<nxn>`              | Set the grid size for no-packing mode (rows x columns).                      | `9x10`                      |
+| `-data-format=<txt\|xml\|bin>`  | Set the output format.                                                       | `txt`                       |
 
 ## Example
 

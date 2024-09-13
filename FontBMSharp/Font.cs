@@ -7,7 +7,15 @@ using System.Text;
 using System.Xml.Linq;
 using Baker76.Imaging;
 using System.Xml;
-
+using System.Runtime.Intrinsics.X86;
+using System.Runtime.CompilerServices;
+using System.Diagnostics;
+using Svg.Skia;
+using Svg.Pathing;
+using System.ComponentModel.Design;
+using HarfBuzzSharp;
+using Svg.Transforms;
+using Svg.Model.Drawables;
 namespace FontBMSharp
 {
     public enum DataFormat
@@ -17,17 +25,132 @@ namespace FontBMSharp
         Binary
     };
 
+    public enum AutoSizeMode
+    {
+        None,
+        Texture,
+        Font
+    }
+
+    public class FontMetrics
+    {
+        public int SDFScale;
+        public int Height;
+        public float Scale;
+        public int Ascent;
+        public int Descent;
+        public int LineGap;
+        public int BaseLine;
+        public int LineHeight;
+        public int AdvanceWidthMax;
+        public int MinLeftSideBearing;
+        public int MinRightSideBearing;
+        public int xMaxExtent;
+
+        public FontMetrics(TTFont font, FontBMOptions options, int sdfScale)
+        {
+            SDFScale = sdfScale;
+            Height = options.FontSize * SDFScale;
+            Scale = font.IsSVG() ? (float)options.FontSize / font.UnitsPerEm : font.ScaleInPixels(Height);
+            font.GetFontVMetrics(out Ascent, out Descent, out LineGap);
+            BaseLine = Height - (int)(Ascent * Scale);
+            LineHeight = (int)Math.Ceiling((Ascent - Descent + LineGap) * Scale);
+            font.GetFontHMetrics(out AdvanceWidthMax, out MinLeftSideBearing, out MinRightSideBearing, out xMaxExtent);
+        }
+    }
+
     public class FontBMOptions
     {
-        public int CharStart = 32; // 97
-        public int CharEnd = 126;
+        public TTFont Font;
+        public List<char> Chars;
         public int FontSize = 32;
+        public int OriginalFontSize = 32;
         public int Spacing = 1;
         public Size TextureSize = new Size(256, 256);
-        public bool AutoSize = true;
+        public AutoSizeMode AutoSize = AutoSizeMode.None;
+        public bool NoPacking = false;
+        public Size GridSize = new Size(9, 10); // Default grid size
         public Baker76.Imaging.Color Color = Baker76.Imaging.Color.White;
         public Baker76.Imaging.Color BackgroundColor = Baker76.Imaging.Color.Transparent;
         public DataFormat DataFormat = DataFormat.Text;
+        public FontMetrics FontMetrics;
+        public Dictionary<char, Point> GlyphPositions;
+        public Dictionary<char, GlyphMetrics> GlyphMetrics;
+        public Dictionary<char, GlyphBitmap> GlyphBitmaps;
+        public List<int> SortedIndices;
+        public RectangleF Bounds;
+
+        public FontBMOptions()
+        {
+            CreateChars();
+        }
+
+        public void CreateChars()
+        {
+            // Createchars(97, 126);
+            CreateChars(32, 126);
+        }
+
+        public void CreateChars(int charStart, int charEnd)
+        {
+            Chars = new List<char>();
+            int charCount = charEnd - charStart + 1;
+
+            for (int i = 0; i < charCount; i++)
+            {
+                var codePoint = (char)(charStart + i);
+                Chars.Add(codePoint);
+            }
+        }
+
+        public void ReadCharsFile(string fileName)
+        {
+            Chars = new List<char>();
+            string text = System.IO.File.ReadAllText(fileName);
+            text = new string(text.Where(c => !char.IsControl(c)).ToArray());
+
+            foreach (char ch in text)
+                Chars.Add(ch);
+        }
+
+        public char GetChar(int index)
+        {
+            return (NoPacking ? Chars[index] : Chars[SortedIndices[index]]);
+        }
+
+        public RectangleF GetGlyphRect(char codePoint, float scale)
+        {
+            if (!GlyphMetrics.ContainsKey(codePoint))
+                return RectangleF.Empty;
+
+            var glyphMetrics = GlyphMetrics[codePoint];
+
+            scale = Font.IsSVG() ? (float)FontSize / Font.UnitsPerEm : scale;
+
+            return RectangleF.FromLTRB(
+                      glyphMetrics.Bounds.Left * scale,  // Adjust relative to overall bounds
+                      glyphMetrics.Bounds.Top * scale,   // Adjust relative to overall bounds
+                      glyphMetrics.Bounds.Right * scale, // Scale width
+                      glyphMetrics.Bounds.Bottom * scale // Scale height
+                  );
+        }
+
+        public int GetGlyphXAdvance(char codePoint)
+        {
+            if (!GlyphMetrics.ContainsKey(codePoint))
+                return 0;
+
+            var glyphMetrics = GlyphMetrics[codePoint];
+
+            if (Font.IsSVG())
+            {
+                float svgScale = FontSize / glyphMetrics.Bounds.Height;
+
+                return (int)(glyphMetrics.Bounds.Width * svgScale);
+            }
+
+            return (int)GlyphMetrics[codePoint].AdvanceWidth;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1, CharSet = CharSet.Ansi)]
@@ -104,6 +227,8 @@ namespace FontBMSharp
         public FontCommon FontCommon;
         public CharInfo[] CharInfo;
         public KernPair[] KernPairs;
+
+        private static Random _random = new Random();
 
         public FontFnt()
         {
@@ -325,250 +450,359 @@ namespace FontBMSharp
 
         public static async Task<(FontFnt, Image)> LoadTTF(byte[] buffer, string fontName, FontBMOptions options)
         {
-            int charCount = options.CharEnd - options.CharStart + 1;
-            Size textureSize = (options.AutoSize ? new System.Drawing.Size(64, 64) : options.TextureSize);
+            options.FontSize = options.OriginalFontSize;
+
             var font = new TTFont(buffer, options);
             font.SvgRender += SvgRender;
 
-            // make this a number larger than 1 to enable SDF output
-            int SDF_scale = 1;
+            options.Font = font;
+            options.GlyphMetrics = new Dictionary<char, GlyphMetrics>();
+            options.SortedIndices = new List<int>(options.Chars.Count);
+            options.FontSize = options.AutoSize == AutoSizeMode.Font ? 1000 : options.FontSize;
+            options.FontMetrics = new FontMetrics(font, options, 1);
 
-            // here is the desired height in pixels of the output
-            // the real value might not be exactly this depending on which characters are part of the input text
-            int height = options.FontSize * SDF_scale;
-            var scale = font.ScaleInPixels(height);
+            await GetGlyphBounds(font, options);
+            GetFontBounds(font, options);
 
-            var glyphs = new Dictionary<char, FontGlyph>();
-            var positions = new Dictionary<char, Point>();
+            return options.NoPacking ? await GenerateFontWithGrid(fontName, font, options) : await GenerateFontWithPacking(fontName, font, options);
+        }
 
-            for (int i = 0; i < charCount; i++)
+        private static async Task GetGlyphBounds(TTFont font, FontBMOptions options)
+        {
+            options.SortedIndices.Clear();
+
+            for (int i = 0; i < options.Chars.Count; i++)
             {
-                var ch = (char)(options.CharStart + i);
-                var glyph = await font.RenderGlyph(ch, scale, options.Color, options.BackgroundColor);
-                glyphs[ch] = glyph;
+                var codePoint = options.Chars[i];
+
+                options.GlyphMetrics[codePoint] = await font.GetGlyphMetrics(codePoint, options.FontMetrics.Scale, options.FontMetrics.Scale, 0, 0);
+                options.SortedIndices.Add(i);
             }
 
-            int ascent, descent, lineGap;
-            font.GetFontVMetrics(out ascent, out descent, out lineGap);
-            int baseLine = height - (int)(ascent * scale);
-            float lineHeight = (ascent - descent + lineGap) * scale;
+            options.SortedIndices = options.SortedIndices
+            .OrderByDescending(a => {
+                var glyphMetrics = options.GlyphMetrics[options.Chars[a]];
+                return glyphMetrics.Bounds.Width * glyphMetrics.Bounds.Height;
+            })
+            .ToList();
+        }
 
-            var glyphAreas = new List<(char Glyph, int Area)>();
+        private static void GetFontBounds(TTFont font, FontBMOptions options)
+        {
+            float minX = float.MaxValue;
+            float minY = float.MaxValue;
+            float maxX = float.MinValue;
+            float maxY = float.MinValue;
 
-            // Populate the list with glyphs and their areas
-            for (int i = 0; i < charCount; i++)
+            for (int i = 0; i < options.Chars.Count; i++)
             {
-                var ch = (char)(options.CharStart + i);
-                var glyph = glyphs[ch];
+                var codePoint = options.GetChar(i);
+                var glyphMetrics = options.GlyphMetrics[codePoint];
 
-                if (glyph == null)
-                    continue;
-
-                int area = glyph.Image.Width * glyph.Image.Height;
-                glyphAreas.Add((ch, area));
+                minX = Math.Min(minX, glyphMetrics.Bounds.Left);
+                minY = Math.Min(minY, glyphMetrics.Bounds.Top);
+                maxX = Math.Max(maxX, glyphMetrics.Bounds.Right);
+                maxY = Math.Max(maxY, glyphMetrics.Bounds.Bottom);
             }
 
-            // Sort the list by area in descending order
-            glyphAreas.Sort((a, b) => b.Area.CompareTo(a.Area));
+            options.Bounds = new RectangleF(minX, minY, maxX - minX, maxY - minY);
+        }
 
+        private static SizeF GetGlyphMaxSize(TTFont font, FontBMOptions options)
+        {
+            if (font.IsSVG())
+            {
+                float scale = (float)options.FontSize / font.UnitsPerEm;
+
+                return new SizeF(options.Bounds.Width * scale, options.Bounds.Height * scale);
+            }
+
+            return new SizeF(options.FontSize, options.FontSize);
+        }
+
+        // Generates font with NoPacking mode
+        private static async Task<(FontFnt, Image)> GenerateFontWithGrid(string fontName, TTFont font, FontBMOptions options)
+        {
+            var charCount = options.GridSize.Width * options.GridSize.Height;
+            var fontSize = options.FontSize;
+            SizeF maxSize = GetGlyphMaxSize(font, options);
+            SizeF cellSize = new SizeF((float)options.TextureSize.Width / options.GridSize.Width, (float)options.TextureSize.Height / options.GridSize.Height);
+
+            options.GlyphPositions = new Dictionary<char, Point>();
+
+            if (options.AutoSize == AutoSizeMode.Texture)
+            {
+                while (maxSize.Width > cellSize.Width || maxSize.Height > cellSize.Height)
+                {
+                    IncreaseTextureSize(ref options.TextureSize);
+                    cellSize = new SizeF((float)options.TextureSize.Width / options.GridSize.Width, (float)options.TextureSize.Height / options.GridSize.Height);
+                }
+            }
+            else if (options.AutoSize == AutoSizeMode.Font)
+            {
+                while (maxSize.Width > cellSize.Width || maxSize.Height > cellSize.Height)
+                {
+                    options.FontSize--;
+                    maxSize = GetGlyphMaxSize(font, options);
+                }
+            }
+
+            options.FontMetrics = new FontMetrics(font, options, 1);
+
+            await GetGlyphBounds(font, options);
+            GetFontBounds(font, options);
+
+            for (int i = 0; i < options.Chars.Count; i++)
+            {
+                if (i >= charCount)
+                    break;
+
+                var codePoint = options.GetChar(i);
+                var glyphMetrics = options.GlyphMetrics[codePoint];
+                var glyphRect = options.GetGlyphRect(codePoint, 1.0f);
+
+                int col = i % options.GridSize.Width;
+                int row = i / options.GridSize.Width;
+                float cellX = col * cellSize.Width;
+                float cellY = row * cellSize.Height;
+                float positionX = cellX;
+                float positionY = cellY;
+
+                if (font.IsSVG())
+                {
+                    var scale = (float)options.FontSize / font.UnitsPerEm;
+
+                    positionX = MathF.Max(cellX + (cellSize.Width / 2.0f - glyphRect.Width / 2.0f), 0);
+                    positionY = cellY - options.FontMetrics.BaseLine * scale;
+                }
+                else
+                {
+                    positionX = MathF.Max(cellX + (cellSize.Width / 2.0f - glyphRect.Width / 2.0f), 0);
+                    positionY = cellY + options.FontMetrics.Height - options.FontMetrics.BaseLine + (int)glyphMetrics.Bounds.Y;
+                }
+
+                options.GlyphPositions[codePoint] = new Point((int)positionX, (int)positionY);
+            }
+
+            await RenderGlyphs(font, options);
+
+            var glyphBitmap = new GlyphBitmap(options.TextureSize.Width, options.TextureSize.Height, false, options.BackgroundColor);
+
+            DrawGlyphs(glyphBitmap, options);
+
+            var fontFnt = CreateFontFnt(fontName, options);
+            var image = new Image(glyphBitmap.Width, glyphBitmap.Height, 32, glyphBitmap.Pixels);
+
+            return (fontFnt, image);
+        }
+
+        // Generates font with RectanglePacker (default packing mode)
+        private static async Task<(FontFnt, Image)> GenerateFontWithPacking(string fontName, TTFont font, FontBMOptions options)
+        {
+            var fontSize = options.FontSize;
+            var scale = 1.0f;
+            Size textureSize = (options.AutoSize == AutoSizeMode.Texture ? new Size(64, 64) : options.TextureSize);
             bool allGlyphsPacked = false;
+
+            options.GlyphPositions = new Dictionary<char, Point>();
 
             while (!allGlyphsPacked)
             {
-                // Initialize the rectangle packer
                 RectanglePacker packer = new RectanglePacker(textureSize.Width, textureSize.Height);
-
                 allGlyphsPacked = true;
 
-                // Try to pack the glyphs in the sorted order
-                for (int i = 0; i < glyphAreas.Count; i++)
+                for (int i = 0; i < options.Chars.Count; i++)
                 {
-                    var ch = glyphAreas[i].Glyph;
-                    var glyph = glyphs[ch];
-
+                    var codePoint = options.GetChar(i);
+                    var glyphRect = options.GetGlyphRect(codePoint, scale);
+                    Size canvasSize = new Size((int)(glyphRect.Width + options.Spacing), (int)(glyphRect.Height + options.Spacing));
                     Point position = Point.Empty;
 
-                    if (!packer.FindPoint(new Size(glyph.Image.Width + options.Spacing, glyph.Image.Height + options.Spacing), ref position))
+                    if (!packer.FindPoint(canvasSize, ref position))
                     {
-                        // If FindPoint fails, increase texture size to the next power of two
-                        if (options.AutoSize)
+                        if (options.AutoSize == AutoSizeMode.Texture)
                         {
-                            if (textureSize.Width == textureSize.Height)
-                                textureSize.Height <<= 1;
-                            else
-                                textureSize.Width <<= 1;
-
+                            IncreaseTextureSize(ref textureSize);
                             allGlyphsPacked = false;
                         }
-
+                        else if (options.AutoSize == AutoSizeMode.Font)
+                        {
+                            options.FontSize--;
+                            scale = (float)options.FontSize / fontSize;
+                            allGlyphsPacked = false;
+                        }
                         break;
                     }
                     else
                     {
-                        positions[ch] = position;
+                        options.GlyphPositions[codePoint] = position;
                     }
                 }
             }
 
-            var tempBmp = new GlyphBitmap(textureSize.Width, textureSize.Height, options.BackgroundColor);
-            {
-                for (int i = 0; i < charCount; i++)
-                {
-                    var ch = (char)(options.CharStart + i);
-                    var glyph = glyphs[ch];
+            options.FontMetrics = new FontMetrics(font, options, 1);
 
-                    if (glyph == null)
-                        continue;
+            await GetGlyphBounds(font, options);
+            GetFontBounds(font, options);
 
-                    var pos = positions[ch];
-                    tempBmp.Draw(glyph.Image, pos.X, pos.Y, options.BackgroundColor);
-                }
-            }
+            await RenderGlyphs(font, options);
 
-            if (SDF_scale > 1)
-            {
-                tempBmp = DistanceFieldUtils.CreateDistanceField(tempBmp, SDF_scale, 32, options.BackgroundColor);
-            }
+            var glyphBitmap = new GlyphBitmap(textureSize.Width, textureSize.Height, false, options.BackgroundColor);
+            DrawGlyphs(glyphBitmap, options);
 
-            var image = new Image(tempBmp.Width, tempBmp.Height, 32, tempBmp.Pixels);
+            var fontFnt = CreateFontFnt(fontName, options);
+            var image = new Image(glyphBitmap.Width, glyphBitmap.Height, 32, glyphBitmap.Pixels);
 
-            Dictionary<(int, int), int> kernPairs = new Dictionary<(int, int), int>();
+            return (fontFnt, image);
+        }
 
-            for (int i = 0; i < charCount; i++)
-            {
-                var ch1 = (char)(options.CharStart + i);
-                var glyph1 = glyphs[ch1];
+        // Helper method to increase the texture size
+        private static void IncreaseTextureSize(ref Size textureSize)
+        {
+            if (textureSize.Width == textureSize.Height)
+                textureSize.Height <<= 1;
+            else
+                textureSize.Width <<= 1;
+        }
 
-                for (int j = 0; j < charCount; j++)
-                {
-                    var ch2 = (char)(options.CharStart + j);
-                    var glyph2 = glyphs[ch1];
+        // Helper method to create a FontFnt object
+        private static FontFnt CreateFontFnt(string fontName, FontBMOptions options)
+        {
+            var fontFnt = new FontFnt(fontName, null);
 
-                    var kerning = font.GetKerning(ch1, ch2, scale);
-
-                    if (kerning != 0)
-                        kernPairs.Add((ch1, ch2), kerning);
-                }
-            }
-
-            FontFnt fontFnt = new FontFnt(fontName, null);
             fontFnt.PageNames = new List<string>();
             fontFnt.FontInfo = new FontInfo();
             fontFnt.FontCommon = new FontCommon();
-            fontFnt.CharInfo = new CharInfo[charCount];
-            fontFnt.KernPairs = new KernPair[kernPairs.Count];
+            fontFnt.CharInfo = new CharInfo[options.Chars.Count];
+            fontFnt.KernPairs = new KernPair[0]; // Placeholder for kerning pairs
 
             fontFnt.PageNames.Add($"{fontName}.png");
 
             fontFnt.FontInfo.FontSize = (short)options.FontSize;
-            fontFnt.FontInfo.BitField = 0;
-            fontFnt.FontInfo._CharSet = 0;
-            fontFnt.FontInfo.StretchH = 100;
-            fontFnt.FontInfo.Aa = 1;
-            fontFnt.FontInfo.PaddingUp = 0;
-            fontFnt.FontInfo.PaddingRight = 0;
-            fontFnt.FontInfo.PaddingBottom = 0;
-            fontFnt.FontInfo.PaddingLeft = 0;
-            fontFnt.FontInfo.SpacingHoriz = (byte)options.Spacing;
-            fontFnt.FontInfo.SpacingVert = (byte)options.Spacing;
-            fontFnt.FontInfo.Outline = 0;
-
-            fontFnt.FontCommon.LineHeight = (ushort)lineHeight;
-            fontFnt.FontCommon.Base = (ushort)(ascent * scale);
-            fontFnt.FontCommon.ScaleW = (ushort)textureSize.Width;
-            fontFnt.FontCommon.ScaleH = (ushort)textureSize.Height;
+            fontFnt.FontCommon.ScaleW = (ushort)options.TextureSize.Width;
+            fontFnt.FontCommon.ScaleH = (ushort)options.TextureSize.Height;
             fontFnt.FontCommon.Pages = 1;
-            fontFnt.FontCommon.BitField = 0;
-            fontFnt.FontCommon.AlphaChnl = 1;
-            fontFnt.FontCommon.RedChnl = 0;
-            fontFnt.FontCommon.GreenChnl = 0;
-            fontFnt.FontCommon.BlueChnl = 0;
 
-            for (int i = 0; i < charCount; i++)
+            // Populate CharInfo
+            for (int i = 0; i < options.Chars.Count; i++)
             {
-                var ch = (char)(options.CharStart + i);
-                var glyph = glyphs[ch];
+                var codePoint = options.GetChar(i);
+                var glyphMetrics = options.GlyphMetrics[codePoint];
 
-                if (glyph == null)
+                if (!options.GlyphPositions.ContainsKey(codePoint))
                     continue;
 
-                var pos = positions[ch];
+                var glyphPosition = options.GlyphPositions[codePoint];
+
+                if (!options.GlyphBitmaps.ContainsKey(codePoint))
+                    continue;
+
+                var glyphBitmap = options.GlyphBitmaps[codePoint];
+                var glpyhRect = options.GetGlyphRect(codePoint, 1.0f);
+                var xAdvance = options.GetGlyphXAdvance(codePoint);
 
                 CharInfo charInfo = new CharInfo();
-                charInfo.Id = ch;
-                charInfo.X = (ushort)pos.X;
-                charInfo.Y = (ushort)pos.Y;
-                charInfo.Width = (ushort)glyph.Image.Width;
-                charInfo.Height = (ushort)glyph.Image.Height;
-                charInfo.XOffset = (short)glyph.xOfs;
-                charInfo.YOffset = (short)glyph.yOfs;
-                charInfo.XAdvance = (short)glyph.xAdvance;
+                charInfo.Id = codePoint;
+                charInfo.X = (ushort)glyphPosition.X;
+                charInfo.Y = (ushort)glyphPosition.Y;
+                charInfo.Width = (ushort)glpyhRect.Width;
+                charInfo.Height = (ushort)glpyhRect.Height;
+                charInfo.XOffset = (short)glpyhRect.X;
+                charInfo.YOffset = (short)glpyhRect.Y;
+                charInfo.XAdvance = (short)xAdvance;
                 charInfo.Page = 0;
                 charInfo.Chnl = 15;
 
                 fontFnt.CharInfo[i] = charInfo;
             }
 
-            int index = 0;
-
-            foreach (var kvp in kernPairs)
-            {
-                (var ch1, var ch2) = kvp.Key;
-                var amount = kvp.Value;
-
-                KernPair kernPair = new KernPair();
-                kernPair.First = (uint)ch1;
-                kernPair.Second = (uint)ch2;
-                kernPair.Amount = (short)amount;
-
-                fontFnt.KernPairs[index++] = kernPair;
-            }
-
-            return (fontFnt, image);
+            return fontFnt;
         }
 
-        public static async Task<GlyphBitmap> SvgRender(TTFont font, string svgDoc, int glyph, object userData)
+        // Helper method to render glyphs
+        private static async Task RenderGlyphs(TTFont font, FontBMOptions options)
         {
-            var options = (FontBMOptions)userData;
-            var svgDocument = SvgDocument.FromSvg<SvgDocument>(svgDoc);
-            var svg = new Svg.Skia.SKSvg();
+            options.GlyphBitmaps = new Dictionary<char, GlyphBitmap>();
 
-            // Set the ViewBox to encompass the full glyph bounding box
-            int unitsPerEm = (int)font.UnitsPerEm;
-            svgDocument.ViewBox = new SvgViewBox(0, -unitsPerEm, unitsPerEm, unitsPerEm);
-            svgDocument.Width = svgDocument.Height = options.FontSize;
-
-            var scale = font.ScaleInPixels(svgDocument.Height.Value);
-
-            font.GetGlyphHMetrics(glyph, out int advanceWidth, out int leftSideBearing);
-            int xAdvance = (int)Math.Floor(advanceWidth * scale);
-
-            font.GetFontVMetrics(out int ascent, out int descent, out int lineGap);
-            int baseLine = (int)svgDocument.Height.Value - (int)(ascent * scale);
-
-            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(svgDocument.GetXML())))
+            for (int i = 0; i < options.Chars.Count; i++)
             {
-                svg.Load(stream);
+                var codePoint = options.Chars[i];
+                var glyphBitmap = await font.RenderGlyph(codePoint, options.FontMetrics.Scale, options.Color, Baker76.Imaging.Color.Empty);
 
-                var newHeight = options.FontSize;
-                var newWidth = xAdvance + 1;
-                var bitmap = new SKBitmap(newWidth, newHeight, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+                if (glyphBitmap == null)
+                    continue;
+
+                options.GlyphBitmaps[codePoint] = glyphBitmap;
+            }
+        }
+
+        // Helper method to draw glyphs using RectanglePacker
+        private static void DrawGlyphs(GlyphBitmap bitmap, FontBMOptions options)
+        {
+            for (int i = 0; i < options.Chars.Count; i++)
+            {
+                var codePoint = options.Chars[i];
+                var glyphMetrics = options.GlyphMetrics[codePoint];
+
+                if (!options.GlyphBitmaps.ContainsKey(codePoint))
+                    continue;
+
+                var glyphBitmap = options.GlyphBitmaps[codePoint];
+
+                if (!options.GlyphPositions.ContainsKey(codePoint))
+                    continue;
+
+                var glyphPosition = options.GlyphPositions[codePoint];
+
+                bitmap.Draw(glyphBitmap, glyphPosition.X, glyphPosition.Y, options.BackgroundColor);
+            }
+        }
+
+        public static async Task<GlyphBitmap> SvgRender(TTFont font, string svgDoc, char codePoint, int glyph, object userData)
+        {
+            try
+            {
+                var options = (FontBMOptions)userData;
+                var svgDocument = SvgDocument.FromSvg<SvgDocument>(svgDoc);
+
+                var glyphMetrics = options.GlyphMetrics;
+
+                if (!glyphMetrics.ContainsKey(codePoint))
+                    return new GlyphBitmap(0, 0, true);
+
+                var glyphMetric = glyphMetrics[codePoint];
+                int unitsPerEm = (int)font.UnitsPerEm;
+                var fontScale = (float)options.FontSize / unitsPerEm;
+                RectangleF svgRect = options.GetGlyphRect(codePoint, 1.0f);
+                Size glyphSize = new Size((int)Math.Max(svgRect.Width, options.FontSize), (int)Math.Max(svgRect.Height, options.FontSize));
+                Size canvasSize = new Size((int)svgRect.Left + glyphSize.Width, (int)svgRect.Top + glyphSize.Height);
+                svgDocument.ViewBox = new SvgViewBox(0, -unitsPerEm, Math.Max(glyphMetric.Bounds.Width, unitsPerEm), Math.Max(glyphMetric.Bounds.Height, unitsPerEm));
+                svgDocument.Overflow = SvgOverflow.Visible;
+                svgDocument.Width = glyphSize.Width;
+                svgDocument.Height = glyphSize.Height;
+
+                var svg = SKSvg.CreateFromSvgDocument(svgDocument);
+                var bitmap = new SKBitmap(canvasSize.Width, canvasSize.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
 
                 using (var canvas = new SKCanvas(bitmap))
                 {
-                    // Clear the canvas with the background color
-                    canvas.Clear(new SKColor((uint)options.BackgroundColor.ToArgb()));
-
-                    // Draw the SVG picture onto the canvas
-                    canvas.DrawPicture(svg.Picture, 0, -baseLine);
+                    // Create random color
+                    //SKColor color = new SKColor((byte)_random.Next(256), (byte)_random.Next(256), (byte)_random.Next(256));
+                    //canvas.DrawRect(svgRect.Left, svgRect.Top, svgRect.Width, svgRect.Height, new SKPaint { Color = color });
+                    
+                    canvas.DrawPicture(svg.Picture, 0, -options.FontMetrics.BaseLine);
                 }
 
-                var glyphBitmap = new GlyphBitmap(bitmap.Width, bitmap.Height, bitmap.Bytes);
+                var glyphBitmap = new GlyphBitmap(bitmap.Width, bitmap.Height, bitmap.Bytes, true);
 
                 return glyphBitmap;
             }
+            catch (Exception ex)
+            {
+                return null;
+            }
         }
-
+    
         public void WriteXml(string fileName)
         {
             if (CharInfo == null)
