@@ -54,7 +54,7 @@ namespace FontBMSharp
             Scale = font.IsSVG() ? (float)options.FontSize / font.UnitsPerEm : font.ScaleInPixels(Height);
             font.GetFontVMetrics(out Ascent, out Descent, out LineGap);
             BaseLine = Height - (int)(Ascent * Scale);
-            LineHeight = (int)Math.Ceiling((Ascent - Descent + LineGap) * Scale);
+            LineHeight = (int)Math.Floor((Ascent - Descent + LineGap) * Scale);
             font.GetFontHMetrics(out AdvanceWidthMax, out MinLeftSideBearing, out MinRightSideBearing, out xMaxExtent);
         }
     }
@@ -151,14 +151,43 @@ namespace FontBMSharp
 
             return (int)GlyphMetrics[codePoint].AdvanceWidth;
         }
+
+        public List<KernPair> GetKernPairs()
+        {
+            List<KernPair> kernPairs = new List<KernPair>();
+
+            if (Font.IsSVG())
+                return kernPairs;
+
+            foreach (char ch1 in Chars)
+            {
+                foreach (char ch2 in Chars)
+                {
+                    var kerning = Font.GetKerning(ch1, ch2, FontMetrics.Scale);
+
+                    if (kerning == 0)
+                        continue;
+
+                    KernPair kernPair = new KernPair
+                    {
+                        First = ch1,
+                        Second = ch2,
+                        Amount = (short)kerning
+                    };
+
+                    kernPairs.Add(kernPair);
+                }
+            }
+
+            return kernPairs;
+        }
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1, CharSet = CharSet.Ansi)]
-    public struct FontInfo
+    public class FontInfo
     {
         public short FontSize;
         public byte BitField;
-        public byte _CharSet;
+        public byte CharSet;
         public ushort StretchH;
         public byte Aa;
         public byte PaddingUp;
@@ -168,12 +197,9 @@ namespace FontBMSharp
         public byte SpacingHoriz;
         public byte SpacingVert;
         public byte Outline;
-        //[MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1)]
-        //public string FontName;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct FontCommon
+    public class FontCommon
     {
         public ushort LineHeight;
         public ushort Base;
@@ -187,15 +213,12 @@ namespace FontBMSharp
         public byte BlueChnl;
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-    public struct FontPages
+    public class FontPages
     {
-        //[MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1)]
-        //public string PageNames;
+        public List<string> PageNames = new List<string>();
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct CharInfo
+    public class CharInfo
     {
         public uint Id;
         public ushort X;
@@ -209,8 +232,7 @@ namespace FontBMSharp
         public byte Chnl;
     }
 
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    public struct KernPair
+    public class KernPair
     {
         public uint First;
         public uint Second;
@@ -257,7 +279,6 @@ namespace FontBMSharp
 
             FontFnt font = new FontFnt(Path.GetFileNameWithoutExtension(fileName), null);
             int offset = 4;
-            ushort lineHeight = 0;
 
             while (offset < buffer.Length)
             {
@@ -270,79 +291,105 @@ namespace FontBMSharp
                 {
                     case 1: // info
                         {
-                            font.FontInfo = Utility.ToObject<FontInfo>(buffer, offset);
+                            FontInfo fontInfo = new FontInfo
+                            {
+                                FontSize = BitConverter.ToInt16(buffer, offset),
+                                BitField = buffer[offset + 2],
+                                CharSet = buffer[offset + 3],
+                                StretchH = BitConverter.ToUInt16(buffer, offset + 4),
+                                Aa = buffer[offset + 6],
+                                PaddingUp = buffer[offset + 7],
+                                PaddingRight = buffer[offset + 8],
+                                PaddingBottom = buffer[offset + 9],
+                                PaddingLeft = buffer[offset + 10],
+                                SpacingHoriz = buffer[offset + 11],
+                                SpacingVert = buffer[offset + 12],
+                                Outline = buffer[offset + 13]
+                            };
 
                             int nameLength = 0;
-
-                            while (buffer[offset + Marshal.SizeOf(typeof(FontInfo)) + nameLength] != 0)
+                            while (buffer[offset + 14 + nameLength] != 0)
                                 nameLength++;
 
-                            font.FontName = Encoding.Default.GetString(buffer, offset + Marshal.SizeOf(typeof(FontInfo)), nameLength);
-
-                            // Console.WriteLine("Font Name: " + font.FontName);
-                            // Console.WriteLine("Font Size: " +  font.FontInfo.FontSize);
+                            font.FontName = System.Text.Encoding.Default.GetString(buffer, offset + 14, nameLength);
+                            font.FontInfo = fontInfo;
                             break;
                         }
                     case 2: // common
                         {
-                            font.FontCommon = Utility.ToObject<FontCommon>(buffer, offset);
-                            // Console.WriteLine("Line Height: " + lineHeight);
+                            FontCommon fontCommon = new FontCommon
+                            {
+                                LineHeight = BitConverter.ToUInt16(buffer, offset),
+                                Base = BitConverter.ToUInt16(buffer, offset + 2),
+                                ScaleW = BitConverter.ToUInt16(buffer, offset + 4),
+                                ScaleH = BitConverter.ToUInt16(buffer, offset + 6),
+                                Pages = BitConverter.ToUInt16(buffer, offset + 8),
+                                BitField = buffer[offset + 10],
+                                AlphaChnl = buffer[offset + 11],
+                                RedChnl = buffer[offset + 12],
+                                GreenChnl = buffer[offset + 13],
+                                BlueChnl = buffer[offset + 14]
+                            };
+
+                            font.FontCommon = fontCommon;
                             break;
                         }
                     case 3: // pages
                         {
                             int nameStartIndex = offset;
-                            List<string> pageNames = new List<string>();
+                            FontPages fontPages = new FontPages();
 
                             while (nameStartIndex < offset + blockSize)
                             {
                                 int nameLength = 0;
-
                                 while (buffer[nameStartIndex + nameLength] != 0)
                                     nameLength++;
 
-                                string pageName = Encoding.Default.GetString(buffer, nameStartIndex, nameLength);
-                                pageNames.Add(pageName);
-
+                                string pageName = System.Text.Encoding.Default.GetString(buffer, nameStartIndex, nameLength);
+                                fontPages.PageNames.Add(pageName);
                                 nameStartIndex += nameLength + 1;
                             }
 
-                            //foreach (string pageName in pageNames)
-                            //    Console.WriteLine("Page Name: " + pageName);
-
-                            font.D2FileName = Path.GetFileNameWithoutExtension(pageNames[0]);
-                            font.PageNames = pageNames;
-
-                            //FontPages pages = new FontPages();
-
-                            //Array.Copy(buffer, offset, pages.PageNames, 0, pages.PageNames.Length);
+                            font.PageNames = fontPages.PageNames;
+                            font.D2FileName = Path.GetFileNameWithoutExtension(fontPages.PageNames[0]);
                             break;
                         }
                     case 4: // chars
                         {
-                            int numChars = (int)(blockSize / Marshal.SizeOf(typeof(CharInfo)));
+                            int numChars = (int)(blockSize / 20);
                             font.CharInfo = new CharInfo[numChars];
 
-                            // Console.WriteLine("Number of Characters: " + numChars);
                             for (int i = 0; i < numChars; i++)
                             {
-                                font.CharInfo[i] = Utility.ToObject<CharInfo>(buffer, offset + i * Marshal.SizeOf(typeof(CharInfo)));
-
-                                // Console.WriteLine("Character ID: " + font.CharInfo[i].Id + ", X: " + font.CharInfo[i].X + ", Y: " + font.CharInfo[i].Y + ", Width: " + font.CharInfo[i].Width + ", Height: " + font.CharInfo[i].Height);
+                                font.CharInfo[i] = new CharInfo
+                                {
+                                    Id = BitConverter.ToUInt32(buffer, offset + i * 20),
+                                    X = BitConverter.ToUInt16(buffer, offset + i * 20 + 4),
+                                    Y = BitConverter.ToUInt16(buffer, offset + i * 20 + 6),
+                                    Width = BitConverter.ToUInt16(buffer, offset + i * 20 + 8),
+                                    Height = BitConverter.ToUInt16(buffer, offset + i * 20 + 10),
+                                    XOffset = BitConverter.ToInt16(buffer, offset + i * 20 + 12),
+                                    YOffset = BitConverter.ToInt16(buffer, offset + i * 20 + 14),
+                                    XAdvance = BitConverter.ToInt16(buffer, offset + i * 20 + 16),
+                                    Page = buffer[offset + i * 20 + 18],
+                                    Chnl = buffer[offset + i * 20 + 19]
+                                };
                             }
                             break;
                         }
                     case 5: // kerning pairs
                         {
-                            int numKernPairs = (buffer.Length - offset) / Marshal.SizeOf(typeof(KernPair));
+                            int numKernPairs = (buffer.Length - offset) / 10;
                             font.KernPairs = new KernPair[numKernPairs];
 
-                            // Console.WriteLine("Number of Kerning Pairs: " + numKernPairs);
                             for (int i = 0; i < numKernPairs; i++)
                             {
-                                font.KernPairs[i] = Utility.ToObject<KernPair>(buffer, offset + i * Marshal.SizeOf(typeof(KernPair)));
-
-                                // Console.WriteLine("First: " + font.KernPairs[i].First + ", Second: " + font.KernPairs[i].Second + ", Amount: " + font.KernPairs[i].Amount);
+                                font.KernPairs[i] = new KernPair
+                                {
+                                    First = BitConverter.ToUInt32(buffer, offset + i * 10),
+                                    Second = BitConverter.ToUInt32(buffer, offset + i * 10 + 4),
+                                    Amount = BitConverter.ToInt16(buffer, offset + i * 10 + 8)
+                                };
                             }
                             break;
                         }
@@ -373,77 +420,106 @@ namespace FontBMSharp
 
                 // Block type 1: info
                 {
+                    writer.Write((byte)1);
+
                     List<byte> infoBlock = new List<byte>();
+                    infoBlock.AddRange(BitConverter.GetBytes(FontInfo.FontSize));
+                    infoBlock.Add(FontInfo.BitField);
+                    infoBlock.Add(FontInfo.CharSet);
+                    infoBlock.AddRange(BitConverter.GetBytes(FontInfo.StretchH));
+                    infoBlock.Add(FontInfo.Aa);
+                    infoBlock.Add(FontInfo.PaddingUp);
+                    infoBlock.Add(FontInfo.PaddingRight);
+                    infoBlock.Add(FontInfo.PaddingBottom);
+                    infoBlock.Add(FontInfo.PaddingLeft);
+                    infoBlock.Add(FontInfo.SpacingHoriz);
+                    infoBlock.Add(FontInfo.SpacingVert);
+                    infoBlock.Add(FontInfo.Outline);
 
-                    // Create FontInfo struct
-                    byte[] infoBytes = Utility.ToBytes(FontInfo);
-                    infoBlock.AddRange(infoBytes);
-
-                    // Write font name
-                    byte[] fontNameBytes = Encoding.Default.GetBytes(Name);
+                    byte[] fontNameBytes = System.Text.Encoding.Default.GetBytes(FontName);
                     infoBlock.AddRange(fontNameBytes);
                     infoBlock.Add(0); // Null terminator for the string
 
-                    // Write block type and size
-                    writer.Write((byte)1);
                     writer.Write(infoBlock.Count);
                     writer.Write(infoBlock.ToArray());
                 }
 
                 // Block type 2: common
                 {
-                    byte[] commonBytes = Utility.ToBytes(FontCommon);
-
                     writer.Write((byte)2);
-                    writer.Write(commonBytes.Length);
-                    writer.Write(commonBytes);
+
+                    List<byte> commonBlock = new List<byte>();
+                    commonBlock.AddRange(BitConverter.GetBytes(FontCommon.LineHeight));
+                    commonBlock.AddRange(BitConverter.GetBytes(FontCommon.Base));
+                    commonBlock.AddRange(BitConverter.GetBytes(FontCommon.ScaleW));
+                    commonBlock.AddRange(BitConverter.GetBytes(FontCommon.ScaleH));
+                    commonBlock.AddRange(BitConverter.GetBytes(FontCommon.Pages));
+                    commonBlock.Add(FontCommon.BitField);
+                    commonBlock.Add(FontCommon.AlphaChnl);
+                    commonBlock.Add(FontCommon.RedChnl);
+                    commonBlock.Add(FontCommon.GreenChnl);
+                    commonBlock.Add(FontCommon.BlueChnl);
+
+                    writer.Write(commonBlock.Count);
+                    writer.Write(commonBlock.ToArray());
                 }
 
                 // Block type 3: pages
                 {
-                    List<byte> pagesBlock = new List<byte>();
+                    writer.Write((byte)3);
 
+                    List<byte> pagesBlock = new List<byte>();
                     foreach (var pageName in PageNames)
                     {
-                        byte[] pageNameBytes = Encoding.Default.GetBytes(pageName);
+                        byte[] pageNameBytes = System.Text.Encoding.Default.GetBytes(pageName);
                         pagesBlock.AddRange(pageNameBytes);
                         pagesBlock.Add(0); // Null terminator for each page name
                     }
 
-                    writer.Write((byte)3);
                     writer.Write(pagesBlock.Count);
                     writer.Write(pagesBlock.ToArray());
                 }
 
                 // Block type 4: chars
                 {
-                    List<byte> charsBlock = new List<byte>();
+                    writer.Write((byte)4);
 
+                    List<byte> charsBlock = new List<byte>();
                     foreach (var charInfo in CharInfo)
                     {
-                        byte[] charInfoBytes = Utility.ToBytes(charInfo);
-                        charsBlock.AddRange(charInfoBytes);
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.Id));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.X));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.Y));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.Width));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.Height));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.XOffset));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.YOffset));
+                        charsBlock.AddRange(BitConverter.GetBytes(charInfo.XAdvance));
+                        charsBlock.Add(charInfo.Page);
+                        charsBlock.Add(charInfo.Chnl);
                     }
 
-                    writer.Write((byte)4);
                     writer.Write(charsBlock.Count);
                     writer.Write(charsBlock.ToArray());
                 }
 
                 // Block type 5: kerning pairs
-                if (KernPairs != null)
                 {
-                    List<byte> kernPairsBlock = new List<byte>();
-
-                    foreach (var kernPair in KernPairs)
+                    if (KernPairs != null)
                     {
-                        byte[] kernPairBytes = Utility.ToBytes(kernPair);
-                        kernPairsBlock.AddRange(kernPairBytes);
-                    }
+                        writer.Write((byte)5);
 
-                    writer.Write((byte)5);
-                    writer.Write(kernPairsBlock.Count);
-                    writer.Write(kernPairsBlock.ToArray());
+                        List<byte> kernPairsBlock = new List<byte>();
+                        foreach (var kernPair in KernPairs)
+                        {
+                            kernPairsBlock.AddRange(BitConverter.GetBytes(kernPair.First));
+                            kernPairsBlock.AddRange(BitConverter.GetBytes(kernPair.Second));
+                            kernPairsBlock.AddRange(BitConverter.GetBytes(kernPair.Amount));
+                        }
+
+                        writer.Write(kernPairsBlock.Count);
+                        writer.Write(kernPairsBlock.ToArray());
+                    }
                 }
             }
         }
@@ -601,14 +677,14 @@ namespace FontBMSharp
         {
             var fontSize = options.FontSize;
             var scale = 1.0f;
-            Size textureSize = (options.AutoSize == AutoSizeMode.Texture ? new Size(64, 64) : options.TextureSize);
+            options.TextureSize = (options.AutoSize == AutoSizeMode.Texture ? new Size(64, 64) : options.TextureSize);
             bool allGlyphsPacked = false;
 
             options.GlyphPositions = new Dictionary<char, Point>();
 
             while (!allGlyphsPacked)
             {
-                RectanglePacker packer = new RectanglePacker(textureSize.Width, textureSize.Height);
+                RectanglePacker packer = new RectanglePacker(options.TextureSize.Width, options.TextureSize.Height);
                 allGlyphsPacked = true;
 
                 for (int i = 0; i < options.Chars.Count; i++)
@@ -622,7 +698,7 @@ namespace FontBMSharp
                     {
                         if (options.AutoSize == AutoSizeMode.Texture)
                         {
-                            IncreaseTextureSize(ref textureSize);
+                            IncreaseTextureSize(ref options.TextureSize);
                             allGlyphsPacked = false;
                         }
                         else if (options.AutoSize == AutoSizeMode.Font)
@@ -647,7 +723,7 @@ namespace FontBMSharp
 
             await RenderGlyphs(font, options);
 
-            var glyphBitmap = new GlyphBitmap(textureSize.Width, textureSize.Height, false, options.BackgroundColor);
+            var glyphBitmap = new GlyphBitmap(options.TextureSize.Width, options.TextureSize.Height, false, options.BackgroundColor);
             DrawGlyphs(glyphBitmap, options);
 
             var fontFnt = CreateFontFnt(fontName, options);
@@ -674,11 +750,13 @@ namespace FontBMSharp
             fontFnt.FontInfo = new FontInfo();
             fontFnt.FontCommon = new FontCommon();
             fontFnt.CharInfo = new CharInfo[options.Chars.Count];
-            fontFnt.KernPairs = new KernPair[0]; // Placeholder for kerning pairs
+            fontFnt.KernPairs = options.GetKernPairs().ToArray();
 
             fontFnt.PageNames.Add($"{fontName}.png");
 
             fontFnt.FontInfo.FontSize = (short)options.FontSize;
+            fontFnt.FontCommon.LineHeight = (ushort)options.FontMetrics.LineHeight;
+            fontFnt.FontCommon.Base = (ushort)options.FontMetrics.BaseLine;
             fontFnt.FontCommon.ScaleW = (ushort)options.TextureSize.Width;
             fontFnt.FontCommon.ScaleH = (ushort)options.TextureSize.Height;
             fontFnt.FontCommon.Pages = 1;
@@ -698,17 +776,17 @@ namespace FontBMSharp
                     continue;
 
                 var glyphBitmap = options.GlyphBitmaps[codePoint];
-                var glpyhRect = options.GetGlyphRect(codePoint, 1.0f);
+                var glyphRect = options.GetGlyphRect(codePoint, 1.0f);
                 var xAdvance = options.GetGlyphXAdvance(codePoint);
 
                 CharInfo charInfo = new CharInfo();
                 charInfo.Id = codePoint;
                 charInfo.X = (ushort)glyphPosition.X;
                 charInfo.Y = (ushort)glyphPosition.Y;
-                charInfo.Width = (ushort)glpyhRect.Width;
-                charInfo.Height = (ushort)glpyhRect.Height;
-                charInfo.XOffset = (short)glpyhRect.X;
-                charInfo.YOffset = (short)glpyhRect.Y;
+                charInfo.Width = (ushort)glyphRect.Width;
+                charInfo.Height = (ushort)glyphRect.Height;
+                charInfo.XOffset = (short)glyphRect.X;
+                charInfo.YOffset = (short)(options.Font.IsSVG() ? 0 : options.FontMetrics.LineHeight + glyphRect.Y - options.FontMetrics.BaseLine);
                 charInfo.XAdvance = (short)xAdvance;
                 charInfo.Page = 0;
                 charInfo.Chnl = 15;
