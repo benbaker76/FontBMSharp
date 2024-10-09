@@ -103,6 +103,12 @@ namespace FontBMSharp
             }
         }
 
+        public void CreateChars(string chars)
+        {
+            Chars = new List<char>();
+            Chars.AddRange(chars);
+        }
+
         public void ReadCharsFile(string fileName)
         {
             Chars = new List<char>();
@@ -749,7 +755,6 @@ namespace FontBMSharp
             fontFnt.PageNames = new List<string>();
             fontFnt.FontInfo = new FontInfo();
             fontFnt.FontCommon = new FontCommon();
-            fontFnt.CharInfo = new CharInfo[options.Chars.Count];
             fontFnt.KernPairs = options.GetKernPairs().ToArray();
 
             fontFnt.PageNames.Add($"{fontName}.png");
@@ -760,6 +765,8 @@ namespace FontBMSharp
             fontFnt.FontCommon.ScaleW = (ushort)options.TextureSize.Width;
             fontFnt.FontCommon.ScaleH = (ushort)options.TextureSize.Height;
             fontFnt.FontCommon.Pages = 1;
+
+            List<CharInfo> charInfoList = new List<CharInfo>();
 
             // Populate CharInfo
             for (int i = 0; i < options.Chars.Count; i++)
@@ -791,8 +798,10 @@ namespace FontBMSharp
                 charInfo.Page = 0;
                 charInfo.Chnl = 15;
 
-                fontFnt.CharInfo[i] = charInfo;
+                charInfoList.Add(charInfo);
             }
+
+            fontFnt.CharInfo = charInfoList.ToArray();
 
             return fontFnt;
         }

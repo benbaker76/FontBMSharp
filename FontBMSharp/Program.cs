@@ -7,6 +7,15 @@ class Program
 {
     static void Main(string[] args)
     {
+        args = new string[] { @"fonts\*.ttf", "output", "-font-size=32", "-texture-size=256x256" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-auto-size=font", "-texture-size=1024x1024" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-auto-size=font", "-no-packing", "-texture-size=1024x1024" };
+
+        //args = new string[] { @"svg-fonts\*.otf", "svg-output", "-auto-size=font", "-chars-file=svgchars.txt", "-no-packing", "-grid-size=7x7", "-texture-size=512x512", "-background-color=0,0,0" };
+        //args = new string[] { @"svg-fonts\*.otf", "svg-output", "-auto-size=font", "-chars-file=svgchars.txt", "-texture-size=1024x1024" };
+
+        // Suassui-Three.otf (left side is cut off)
+
         if (args.Length == 0)
         {
             DisplayHelp();
