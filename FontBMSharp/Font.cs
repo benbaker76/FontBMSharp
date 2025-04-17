@@ -69,7 +69,7 @@ namespace FontBMSharp
         public int OriginalFontSize = 32;
         public int Spacing = 1;
         public Size TextureSize = new Size(256, 256);
-        public AutoSizeMode AutoSize = AutoSizeMode.None;
+        public AutoSizeMode AutoSize = AutoSizeMode.Texture;
         public bool NoPacking = false;
         public bool IncludeBlankChar = false;
         public Size GridSize = new Size(9, 10); // Default grid size
@@ -85,7 +85,6 @@ namespace FontBMSharp
 
         public FontBMOptions()
         {
-            CreateChars();
         }
 
         public void CreateChars()
