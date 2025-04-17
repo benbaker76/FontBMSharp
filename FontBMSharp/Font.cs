@@ -61,6 +61,8 @@ namespace FontBMSharp
 
     public class FontBMOptions
     {
+        public const char BlankChar = (char)0xFFFE;
+
         public TTFont Font;
         public List<char> Chars;
         public int FontSize = 32;
@@ -69,6 +71,7 @@ namespace FontBMSharp
         public Size TextureSize = new Size(256, 256);
         public AutoSizeMode AutoSize = AutoSizeMode.None;
         public bool NoPacking = false;
+        public bool IncludeBlankChar = false;
         public Size GridSize = new Size(9, 10); // Default grid size
         public Baker76.Imaging.Color Color = Baker76.Imaging.Color.White;
         public Baker76.Imaging.Color BackgroundColor = Baker76.Imaging.Color.Transparent;
@@ -101,12 +104,18 @@ namespace FontBMSharp
                 var codePoint = (char)(charStart + i);
                 Chars.Add(codePoint);
             }
+
+            if (IncludeBlankChar)
+                Chars.Add(BlankChar);
         }
 
         public void CreateChars(string chars)
         {
             Chars = new List<char>();
             Chars.AddRange(chars);
+
+            if (IncludeBlankChar)
+                Chars.Add(BlankChar);
         }
 
         public void ReadCharsFile(string fileName)
@@ -117,11 +126,31 @@ namespace FontBMSharp
 
             foreach (char ch in text)
                 Chars.Add(ch);
+
+            if (IncludeBlankChar)
+                Chars.Add(BlankChar);
         }
 
         public char GetChar(int index)
         {
             return (NoPacking ? Chars[index] : Chars[SortedIndices[index]]);
+        }
+
+        public GlyphMetrics GetBlankCharGlyphMetrics()
+        {
+            return new GlyphMetrics()
+            {
+                Bounds = new RectangleF(0, 0, 8, 8),
+                LeftSideBearing = 0,
+                TopSideBearing = 0,
+                AdvanceWidth = 8,
+                AdvanceHeight = 8
+            };
+        }
+
+        public GlyphBitmap GetBlankCharGlyphBitmap()
+        {
+            return new GlyphBitmap(8, 8, false, Baker76.Imaging.Color.White);
         }
 
         public RectangleF GetGlyphRect(char codePoint, float scale)
@@ -557,6 +586,13 @@ namespace FontBMSharp
             {
                 var codePoint = options.Chars[i];
 
+                if (codePoint == FontBMOptions.BlankChar)
+                {
+                    options.GlyphMetrics[codePoint] = options.GetBlankCharGlyphMetrics();
+                    options.SortedIndices.Add(i);
+                    continue;
+                }
+
                 options.GlyphMetrics[codePoint] = await font.GetGlyphMetrics(codePoint, options.FontMetrics.Scale, options.FontMetrics.Scale, 0, 0);
                 options.SortedIndices.Add(i);
             }
@@ -814,6 +850,14 @@ namespace FontBMSharp
             for (int i = 0; i < options.Chars.Count; i++)
             {
                 var codePoint = options.Chars[i];
+
+                if (codePoint == FontBMOptions.BlankChar)
+                {
+                    options.GlyphBitmaps[codePoint] = options.GetBlankCharGlyphBitmap();
+
+                    continue;
+                }
+
                 var glyphBitmap = await font.RenderGlyph(codePoint, options.FontMetrics.Scale, options.Color, Baker76.Imaging.Color.Empty);
 
                 if (glyphBitmap == null)

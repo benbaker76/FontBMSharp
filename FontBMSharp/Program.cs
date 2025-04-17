@@ -7,6 +7,16 @@ class Program
 {
     static void Main(string[] args)
     {
+        //args = new string[] { @"fonts\*.ttf", "output", "-font-size=64", "-auto-size=texture" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-font-size=32", "-texture-size=256x256" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-auto-size=font", "-texture-size=1024x1024" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-auto-size=font", "-no-packing", "-texture-size=1024x1024" };
+
+        //args = new string[] { @"svg-fonts\*.otf", "svg-output", "-auto-size=font", "-chars-file=svgchars.txt", "-no-packing", "-grid-size=7x7", "-texture-size=512x512", "-background-color=0,0,0" };
+        //args = new string[] { @"svg-fonts\*.otf", "svg-output", "-auto-size=font", "-chars-file=svgchars.txt", "-texture-size=1024x1024" };
+
+        // Suassui-Three.otf (left side is cut off)
+
         if (args.Length == 0)
         {
             DisplayHelp();
@@ -159,6 +169,11 @@ class Program
                     string charsFile = arg.Split('=')[1];
                     options.ReadCharsFile(charsFile);
                 }
+
+                if (arg.Equals("-include-blank-char"))
+                {
+                    options.IncludeBlankChar = true;
+                }
             }
             else
             {
@@ -272,5 +287,6 @@ class Program
         Console.WriteLine("-no-packing               Disable rectangle packing and draw glyphs in a grid.");
         Console.WriteLine("-grid-size=<nxn>          Set the grid size for no-packing mode. Default is 9x10.");
         Console.WriteLine("-data-format=<txt|xml|bin> Set the output format. Default is txt.");
+        Console.WriteLine("-include-blank-char       Include a blank 8x8 glyph for character 0xFFFE.");
     }
 }

@@ -43,6 +43,7 @@ FontBMSharp <filename> <output-path> [options]
 | `-no-packing`                   | Disable rectangle packing and draw glyphs in a grid.                        | `false`                     |
 | `-grid-size=<nxn>`              | Set the grid size for no-packing mode (rows x columns).                      | `9x10`                      |
 | `-data-format=<txt\|xml\|bin>`  | Set the output format.                                                       | `txt`                       |
+| `-include-blank-char`           | Include a blank 8x8 glyph for character 0xFFFE.                              | `false`                       |
 
 ## Example
 
