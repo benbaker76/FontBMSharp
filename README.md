@@ -39,7 +39,7 @@ FontBMSharp <filename> <output-path> [options]
 | `-color=<r,g,b[,a]>`            | Set the font color using RGB[A] values.                                      | `0,0,0,0` (transparent)     |
 | `-background-color=<r,g,b[,a]>` | Set the background color using RGB[A] values.                                | `255,255,255,255` (white)   |
 | `-texture-size=<nxn>`           | Set the initial texture size in pixels (width x height).                     | `256x256`                   |
-| `-auto-size=<texture|font>`     | Automatically adjust the texture size or font size to fit all glyphs.        | `texture`                   |
+| `-auto-size=<none\|texture\|font>`| Automatically adjust the texture size or font size to fit all glyphs.        | `texture`                   |
 | `-no-packing`                   | Disable rectangle packing and draw glyphs in a grid.                        | `false`                     |
 | `-grid-size=<nxn>`              | Set the grid size for no-packing mode (rows x columns).                      | `9x10`                      |
 | `-data-format=<txt\|xml\|bin>`  | Set the output format.                                                       | `txt`                       |

@@ -7,6 +7,25 @@ class Program
 {
     static void Main(string[] args)
     {
+        //  output -no-packing -font-size=16 -chars-file=chars.txt -grid-size=16x6 -texture-size=256x96
+
+        //args = new string[] { @"fonts\PixelPirate.ttf", "output", "-auto-size=none", "-no-packing", "-font-size=16", "-chars-file=chars.txt", "-grid-size=16x6", "-texture-size=256x96", "-spacing=0" };
+
+
+        //args = new string[] { @"fonts\SegoeVT.ttf", "output", "-auto-size=font", "-no-packing", "-texture-size=1024x1024" };
+
+        //args = new string[] { @"fonts\*.ttf", "output", "-font-size=64", "-auto-size=texture" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-font-size=32", "-texture-size=256x256" };
+        //args = new string[] { @"fonts\*.ttf", "output", "-auto-size=font", "-texture-size=1024x1024" };
+
+        //args = new string[] { @"fonts\*.ttf", "output", "-auto-size=font", "-no-packing", "-texture-size=1024x1024" };
+        //args = new string[] { @"fonts\*.otf", "output", "-auto-size=font", "-no-packing", "-texture-size=1024x1024" };
+
+        //args = new string[] { @"svg-fonts\*.otf", "svg-output", "-auto-size=font", "-chars-file=svgchars.txt", "-no-packing", "-grid-size=7x7", "-texture-size=512x512", "-background-color=0,0,0" };
+
+        //args = new string[] { @"svg-fonts\*.otf", "svg-output", "-auto-size=font", "-chars-file=svgchars.txt", "-texture-size=1024x1024" };
+        // Suassui-Three.otf (left side is cut off)
+
         if (args.Length == 0)
         {
             DisplayHelp();
@@ -42,20 +61,20 @@ class Program
             options.IncludeBlankChar = true;
         }
 
-        if (argsDictionary.ContainsKey("-chars-file="))
+        if (argsDictionary.ContainsKey("-chars-file"))
         {
-            string charsFile = argsDictionary["-chars-file="];
+            string charsFile = argsDictionary["-chars-file"];
             options.ReadCharsFile(charsFile);
         }
-        else if (argsDictionary.ContainsKey("-chars="))
+        else if (argsDictionary.ContainsKey("-chars"))
         {
-            string[] vals = argsDictionary["-chars="].Split('-');
+            string[] vals = argsDictionary["-chars"].Split('-');
             int charsStart = 0;
             int charsEnd = 0;
 
             if (vals.Length != 2 || !Int32.TryParse(vals[0], out charsStart) || !Int32.TryParse(vals[1], out charsEnd))
             {
-                Console.WriteLine("ERROR: Invalid value " + argsDictionary["-chars="]);
+                Console.WriteLine("ERROR: Invalid value " + argsDictionary["-chars"]);
                 return;
             }
 
@@ -65,63 +84,66 @@ class Program
             options.CreateChars();
     
 
-        if (argsDictionary.ContainsKey("-font-size="))
+        if (argsDictionary.ContainsKey("-font-size"))
         {
-            if (!Int32.TryParse(argsDictionary["-font-size="], out options.FontSize))
+            if (!Int32.TryParse(argsDictionary["-font-size"], out options.FontSize))
             {
-                Console.WriteLine("ERROR: Invalid value " + argsDictionary["-font-size="]);
+                Console.WriteLine("ERROR: Invalid value " + argsDictionary["-font-size"]);
                 return;
             }
 
             options.OriginalFontSize = options.FontSize;
         }
 
-        if (argsDictionary.ContainsKey("-spacing="))
+        if (argsDictionary.ContainsKey("-spacing"))
         {
-            if (!Int32.TryParse(argsDictionary["-spacing="], out options.Spacing))
+            if (!Int32.TryParse(argsDictionary["-spacing"], out options.Spacing))
             {
-                Console.WriteLine("ERROR: Invalid value " + argsDictionary["-spacing="]);
+                Console.WriteLine("ERROR: Invalid value " + argsDictionary["-spacing"]);
                 return;
             }
         }
 
-        if (argsDictionary.ContainsKey("-color="))
+        if (argsDictionary.ContainsKey("-color"))
         {
-            if (!TryParseColorString(argsDictionary["-color="], out options.Color))
+            if (!TryParseColorString(argsDictionary["-color"], out options.Color))
             {
-                Console.WriteLine("ERROR: Invalid color value " + argsDictionary["-color="]);
+                Console.WriteLine("ERROR: Invalid color value " + argsDictionary["-color"]);
                 return;
             }
         }
 
-        if (argsDictionary.ContainsKey("-background-color="))
+        if (argsDictionary.ContainsKey("-background-color"))
         {
-            if (!TryParseColorString(argsDictionary["-background-color="], out options.BackgroundColor))
+            if (!TryParseColorString(argsDictionary["-background-color"], out options.BackgroundColor))
             {
-                Console.WriteLine("ERROR: Invalid background color value " + argsDictionary["-background-color="]);
+                Console.WriteLine("ERROR: Invalid background color value " + argsDictionary["-background-color"]);
                 return;
             }
         }
 
-        if (argsDictionary.ContainsKey("-texture-size="))
+        if (argsDictionary.ContainsKey("-texture-size"))
         {
-            string[] vals = argsDictionary["-texture-size="].Split('x');
+            string[] vals = argsDictionary["-texture-size"].Split('x');
 
             if (vals.Length != 2 || !Int32.TryParse(vals[0], out int width) || !Int32.TryParse(vals[1], out int height))
             {
-                Console.WriteLine("ERROR: Invalid texture size value " + argsDictionary["-texture-size="]);
+                Console.WriteLine("ERROR: Invalid texture size value " + argsDictionary["-texture-size"]);
                 return;
             }
 
             options.TextureSize = new System.Drawing.Size(width, height);
         }
 
-        if (argsDictionary.ContainsKey("-auto-size="))
+        if (argsDictionary.ContainsKey("-auto-size"))
         {
-            string[] vals = argsDictionary["-auto-size="].Split('=');
+            string value = argsDictionary["-auto-size"];
 
-            switch (vals[1].ToLower())
+            switch (value.ToLower())
             {
+                case "none":
+                    options.AutoSize = AutoSizeMode.None;
+                    break;
                 case "texture":
                     options.AutoSize = AutoSizeMode.Texture;
                     break;
@@ -129,7 +151,7 @@ class Program
                     options.AutoSize = AutoSizeMode.Font;
                     break;
                 default:
-                    Console.WriteLine("ERROR: Invalid auto-size value " + argsDictionary["-auto-size="]);
+                    Console.WriteLine("ERROR: Invalid auto-size value " + argsDictionary["-auto-size"]);
                     return;
             }
         }
@@ -139,22 +161,23 @@ class Program
             options.NoPacking = true;
         }
 
-        if (argsDictionary.ContainsKey("-grid-size="))
+        if (argsDictionary.ContainsKey("-grid-size"))
         {
-            string[] vals = argsDictionary["-grid-size="].Split('x');
+            string[] vals = argsDictionary["-grid-size"].Split('x');
 
             if (vals.Length != 2 || !Int32.TryParse(vals[0], out int rows) || !Int32.TryParse(vals[1], out int cols))
             {
-                Console.WriteLine("ERROR: Invalid grid size value " + argsDictionary["-grid-size="]);
+                Console.WriteLine("ERROR: Invalid grid size value " + argsDictionary["-grid-size"]);
                 return;
             }
 
             options.GridSize = new System.Drawing.Size(rows, cols);
         }
 
-        if (argsDictionary.ContainsKey("-data-format="))
+        if (argsDictionary.ContainsKey("-data-format"))
         {
-            string format = argsDictionary["-data-format="].ToLower();
+            string format = argsDictionary["-data-format"].ToLower();
+
             switch (format)
             {
                 case "txt":
@@ -167,7 +190,7 @@ class Program
                     options.DataFormat = DataFormat.Binary;
                     break;
                 default:
-                    Console.WriteLine("ERROR: Invalid data format value " + argsDictionary["-data-format="]);
+                    Console.WriteLine("ERROR: Invalid data format value " + argsDictionary["-data-format"]);
                     return;
             }
         }
