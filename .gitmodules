@@ -1,4 +1,0 @@
-[submodule "Baker76.Core"]
-	path = Baker76.Core
-	url = https://github.com/benbaker76/Baker76.Core
-	ignore = dirty

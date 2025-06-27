@@ -7,13 +7,15 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="SkiaSharp" Version="3.116.1" />
-    <PackageReference Include="Svg.Skia" Version="3.0.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<Content Include="../README.md" Pack="true" PackagePath="\" />
+		<None Include="../LICENSE" Pack="true" PackagePath="\" />
+	</ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Baker76.Core\src\Baker76.Imaging\Baker76.Imaging.csproj" />
+    <PackageReference Include="Baker76.Imaging" Version="1.0.25" />
+    <PackageReference Include="SkiaSharp" Version="3.119.0" />
+    <PackageReference Include="Svg.Skia" Version="3.0.0" />
   </ItemGroup>
 
 </Project>
