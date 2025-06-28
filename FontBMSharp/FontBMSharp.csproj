@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
 	<ItemGroup>
 		<Content Include="../README.md" Pack="true" PackagePath="\" />
@@ -19,10 +19,10 @@
 		<PackageVersion>1.0.0</PackageVersion>
 	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Baker76.Imaging" Version="1.0.25" />
-    <PackageReference Include="SkiaSharp" Version="3.119.0" />
-    <PackageReference Include="Svg.Skia" Version="3.0.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Baker76.Imaging" Version="1.0.25" />
+		<PackageReference Include="SkiaSharp" Version="3.119.0" />
+		<PackageReference Include="Svg.Skia" Version="3.0.0" />
+	</ItemGroup>
 
 </Project>
